@@ -4,7 +4,21 @@
     "**/.github/workflows/*.yaml": "github-actions-workflow",
     "**/.vscode/settings.json": "jsonc",
     "**/.vscode/settings.template.json": "jsonc",
-    "*.yml": "ansible",
-    "*.yaml": "ansible"
+    // yaml-lint file
+    "**/.ansible-lint": "yaml",
+    "**/.ansible-lint.yml": "yaml",
+    "**/.ansible-lint.yaml": "yaml",
+    // ansible yaml files
+    "**/defaults/*.yaml": "ansible",
+    "**/tasks/*.yaml": "ansible",
+    "**/meta/*.yaml": "ansible",
+    "**/handlers/*.yaml": "ansible",
+    "**/vars/*.yaml": "ansible",
+    // ansible yml files
+    "**/defaults/*.yml": "ansible",
+    "**/tasks/*.yml": "ansible",
+    "**/meta/*.yml": "ansible",
+    "**/handlers/*.yml": "ansible",
+    "**/vars/*.yml": "ansible",
   }
 }
