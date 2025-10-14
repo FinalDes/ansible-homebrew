@@ -8,6 +8,7 @@
     "**/.ansible-lint": "yaml",
     "**/.ansible-lint.yml": "yaml",
     "**/.ansible-lint.yaml": "yaml",
+    "**/ansible.cfg": "ini",
     // ansible yaml files
     "**/defaults/*.yaml": "ansible",
     "**/tasks/*.yaml": "ansible",
@@ -19,6 +20,6 @@
     "**/tasks/*.yml": "ansible",
     "**/meta/*.yml": "ansible",
     "**/handlers/*.yml": "ansible",
-    "**/vars/*.yml": "ansible",
+    "**/vars/*.yml": "ansible"
   }
 }
