@@ -1,0 +1,89 @@
+---
+- name: Gather facts
+  ansible.builtin.setup:
+    gather_subset:
+      - hardware
+      - os
+
+- name: Set Homebrew install prefix
+  ansible.builtin.set_fact:
+    brew_prefix: >-
+      {% if ansible_facts['os_family'] == 'Darwin' and ansible_facts['architecture'] == 'arm64' %}
+        {{ brew_prefix_macos_arm }}
+      {% elif ansible_facts['os_family'] == 'Darwin' %}
+        {{ brew_prefix_macos_intel }}
+      {% else %}
+        {{ brew_prefix_linux }}
+      {% endif %}
+    brew_repository: >-
+      {% if ansible_facts['os_family'] == 'Darwin' and ansible_facts['architecture'] == 'arm64' %}
+        {{ brew_prefix_macos_arm }}
+      {% elif ansible_facts['os_family'] == 'Darwin' %}
+        {{ brew_prefix_macos_intel }}/Homebrew
+      {% else %}
+        {{ brew_prefix_linux }}/Homebrew
+      {% endif %}
+
+- name: Ensure required packages are installed (Linux only)
+  become: true
+  ansible.builtin.package:
+    name:
+      - git
+      - curl
+      - build-essential
+    state: present
+  when: ansible_facts['os_family'] == 'Debian' or ansible_facts['os_family'] == 'RedHat'
+
+- name: Install Xcode Command Line Tools if not present (macOS only)
+  become: true
+  ansible.builtin.command: xcode-select --install
+  args:
+    creates: /Library/Developer/CommandLineTools
+  when: ansible_facts['os_family'] == 'Darwin'
+
+- name: Create Homebrew prefix directory
+  ansible.builtin.file:
+    path: "{{ brew_prefix }}"
+    state: directory
+    mode: "0755"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+
+- name: Create Homebrew repository directory
+  ansible.builtin.file:
+    path: "{{ brew_repository }}"
+    state: directory
+    mode: "0755"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+
+- name: Clone Homebrew/brew repository
+  ansible.builtin.git:
+    repo: "{{ brew_repo }}"
+    dest: "{{ brew_repository }}"
+    version: stable
+    update: true
+
+- name: Create Homebrew bin symlink (macOS only, Intel)
+  ansible.builtin.file:
+    src: "../Homebrew/bin/brew"
+    dest: "{{ brew_prefix }}/bin/brew"
+    state: link
+  when: ansible_facts['os_family'] == 'Darwin' and ansible_facts['architecture'] != 'arm64'
+
+- name: Add Homebrew to PATH in .profile
+  ansible.builtin.lineinfile:
+    path: "{{ ansible_env.HOME }}/.profile"
+    line: 'eval "$({{ brew_prefix }}/bin/brew shellenv)"'
+    insertafter: EOF
+    state: present
+
+- name: Show next steps
+  ansible.builtin.debug:
+    msg: |
+      Homebrew installed!
+      - Run 'brew help' to get started.
+      - Add Homebrew to your shell profile if not already done:
+        eval "$({{ brew_prefix }}/bin/brew shellenv)"
+      - For Linux, install build tools: sudo apt-get install build-essential
+      - Docs: https://docs.brew.sh

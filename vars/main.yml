@@ -1,0 +1,8 @@
+#SPDX-License-Identifier: MIT-0
+---
+# vars file for ansible-homebrew
+brew_prefix_linux: "/home/linuxbrew/.linuxbrew"
+brew_prefix_macos_arm: "/opt/homebrew"
+brew_prefix_macos_intel: "/usr/local"
+brew_repo: "https://github.com/Homebrew/brew"
+core_repo: "https://github.com/Homebrew/homebrew-core"
