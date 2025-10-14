@@ -26,5 +26,8 @@ jobs:
       - name: Check uv.lock sync
         run: uv sync --locked
 
+      - name: ansible-lint
+        run: uv run ansible-lint .
+
       - name: Minimize uv cache
         run: uv cache prune --ci
