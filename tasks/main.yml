@@ -78,6 +78,26 @@
     insertafter: EOF
     state: present
 
+- name: Check if zsh is installed
+  ansible.builtin.stat:
+    path: /bin/zsh
+  register: zsh_bin
+
+- name: Ensure .zprofile exists
+  ansible.builtin.file:
+    path: "{{ ansible_env.HOME }}/.zprofile"
+    state: touch
+    mode: '0644'
+  when: zsh_bin.stat.exists
+
+- name: Add Homebrew to PATH in .zshrc
+  ansible.builtin.lineinfile:
+    path: "{{ ansible_env.HOME }}/.zprofile"
+    line: 'eval "$({{ brew_prefix }}/bin/brew shellenv)"'
+    insertafter: EOF
+    state: present
+  when: zsh_bin.stat.exists
+
 - name: Show next steps
   ansible.builtin.debug:
     msg: |
