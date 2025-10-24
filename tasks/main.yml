@@ -61,7 +61,7 @@
   ansible.builtin.git:
     repo: "{{ brew_repo }}"
     dest: "{{ brew_repository }}"
-    version: stable
+    version: "{{ brew_version }}"
     update: true
 
 - name: Create Homebrew bin symlink (macOS only, Intel)

@@ -1,3 +1,8 @@
 argument_specs:
   main:
-    options: {}
+    options:
+      brew_version:
+        description: Tag, branch or commit to checkout for Homebrew/brew
+        type: str
+        default: "4.6.18"
+        required: false
