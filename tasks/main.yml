@@ -78,6 +78,14 @@
     insertafter: EOF
     state: present
 
+- name: Add Homebrew to PATH in .zshrc
+  ansible.builtin.lineinfile:
+    path: "{{ ansible_env.HOME }}/.zprofile"
+    line: 'eval "$({{ brew_prefix }}/bin/brew shellenv)"'
+    insertafter: EOF
+    state: present
+    when: lookup('file', '/bin/zsh') is not failed
+
 - name: Show next steps
   ansible.builtin.debug:
     msg: |
