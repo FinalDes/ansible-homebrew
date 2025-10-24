@@ -1,9 +1,9 @@
 ---
-- name: Gather facts
-  ansible.builtin.setup:
-    gather_subset:
-      - hardware
-      - os
+# - name: Gather facts
+#   ansible.builtin.setup:
+#     gather_subset:
+#       - hardware
+#       - os
 
 - name: Set Homebrew install prefix
   ansible.builtin.set_fact:
