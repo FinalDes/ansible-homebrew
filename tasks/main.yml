@@ -1,111 +1,52 @@
 ---
-# - name: Gather facts
-#   ansible.builtin.setup:
-#     gather_subset:
-#       - hardware
-#       - os
+- name: Gather system facts
+  ansible.builtin.setup:
+    gather_subset: "!all,distribution"
+  changed_when: false
 
-- name: Set Homebrew install prefix
-  ansible.builtin.set_fact:
-    brew_prefix: >-
-      {%- if ansible_facts['os_family'] == 'Darwin' and ansible_facts['architecture'] == 'arm64' -%}
-        {{ brew_prefix_macos_arm }}
-      {%- elif ansible_facts['os_family'] == 'Darwin' -%}
-        {{ brew_prefix_macos_intel }}
-      {%- else -%}
-        {{ brew_prefix_linux }}
-      {%- endif -%}
-    brew_repository: >-
-      {%- if ansible_facts['os_family'] == 'Darwin' and ansible_facts['architecture'] == 'arm64' -%}
-        {{ brew_prefix_macos_arm }}
-      {%- elif ansible_facts['os_family'] == 'Darwin' -%}
-        {{ brew_prefix_macos_intel }}/Homebrew
-      {%- else -%}
-        {{ brew_prefix_linux }}/Homebrew
-      {%- endif -%}
+- name: Fail if not running on supported OS
+  ansible.builtin.fail:
+    msg: "Homebrew is only supported on macOS and Linux."
+  when: ansible_facts.system not in ["Darwin", "Linux"]
 
-- name: Ensure required packages are installed (Linux only)
-  become: true
-  ansible.builtin.package:
-    name:
-      - git
-      - curl
-      - build-essential
-    state: present
-  when: ansible_facts['os_family'] == 'Debian' or ansible_facts['os_family'] == 'RedHat'
+- name: Fail if POSIXLY_CORRECT is set
+  ansible.builtin.fail:
+    msg: "Bash must not run in POSIX mode. Please unset POSIXLY_CORRECT."
+  when: lookup('env', 'POSIXLY_CORRECT') != ""
 
-- name: Install Xcode Command Line Tools if not present (macOS only)
-  become: true
-  ansible.builtin.command: xcode-select --install
-  args:
-    creates: /Library/Developer/CommandLineTools
-  when: ansible_facts['os_family'] == 'Darwin'
+- name: Fail if running as root (unless in container)
+  ansible.builtin.fail:
+    msg: "Don't run this as root!"
+  when: ansible_facts.effective_user_id == 0 and not ansible_facts.is_container
 
-- name: Create Homebrew prefix directory
-  become: true
-  ansible.builtin.file:
-    path: "{{ brew_prefix }}"
-    state: directory
-    mode: "0755"
-    owner: "{{ ansible_user }}"
-    group: "{{ ansible_user }}"
-
-- name: Create Homebrew repository directory
-  become: true
-  ansible.builtin.file:
-    path: "{{ brew_repository }}"
-    state: directory
-    mode: "0755"
-    owner: "{{ ansible_user }}"
-    group: "{{ ansible_user }}"
-
-- name: Clone Homebrew/brew repository
-  ansible.builtin.git:
-    repo: "{{ brew_repo }}"
-    dest: "{{ brew_repository }}"
-    version: "{{ brew_version }}"
-    update: true
-
-- name: Create Homebrew bin symlink (macOS only, Intel)
-  ansible.builtin.file:
-    src: "../Homebrew/bin/brew"
-    dest: "{{ brew_prefix }}/bin/brew"
-    state: link
-  when: ansible_facts['os_family'] == 'Darwin' and ansible_facts['architecture'] != 'arm64'
-
-- name: Add Homebrew to PATH in .profile
-  ansible.builtin.lineinfile:
-    path: "{{ ansible_env.HOME }}/.profile"
-    line: 'eval "$({{ brew_prefix }}/bin/brew shellenv)"'
-    insertafter: EOF
-    state: present
-
-- name: Check if zsh is installed
+- name: Check if Homebrew is already installed
   ansible.builtin.stat:
-    path: /bin/zsh
-  register: zsh_bin
+    path: "{{ homebrew_prefix }}/bin/brew"
+  register: homebrew_installed
+  changed_when: false
 
-- name: Ensure .zprofile exists
-  ansible.builtin.file:
-    path: "{{ ansible_env.HOME }}/.zprofile"
-    state: touch
-    mode: '0644'
-  when: zsh_bin.stat.exists
+- name: Include macOS tasks
+  ansible.builtin.include_tasks: macos.yml
+  when: ansible_facts.system == "Darwin"
 
-- name: Add Homebrew to PATH in .zshrc
-  ansible.builtin.lineinfile:
-    path: "{{ ansible_env.HOME }}/.zprofile"
-    line: 'eval "$({{ brew_prefix }}/bin/brew shellenv)"'
-    insertafter: EOF
-    state: present
-  when: zsh_bin.stat.exists
+- name: Include Linux tasks
+  ansible.builtin.include_tasks: linux.yml
+  when: ansible_facts.system == "Linux"
 
-- name: Show next steps
+- name: Update Homebrew
+  ansible.builtin.command: "{{ homebrew_prefix }}/bin/brew update --force --quiet"
+  environment:
+    HOMEBREW_NO_ANALYTICS_THIS_RUN: "1"
+    HOMEBREW_NO_ANALYTICS_MESSAGE_OUTPUT: "1"
+  when: not homebrew_installed.stat.exists
+  changed_when: false
+
+- name: Verify Homebrew installation
+  ansible.builtin.command: "{{ homebrew_prefix }}/bin/brew --version"
+  register: homebrew_version
+  changed_when: false
+
+- name: Display Homebrew version
   ansible.builtin.debug:
-    msg: |
-      Homebrew installed!
-      - Run 'brew help' to get started.
-      - Add Homebrew to your shell profile if not already done:
-        eval "$({{ brew_prefix }}/bin/brew shellenv)"
-      - For Linux, install build tools: sudo apt-get install build-essential
-      - Docs: https://docs.brew.sh
+    msg: "Homebrew version: {{ homebrew_version.stdout }}"
+  when: homebrew_version.rc == 0

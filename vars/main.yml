@@ -1,6 +1,10 @@
 ---
-brew_prefix_linux: "/home/linuxbrew/.linuxbrew"
-brew_prefix_macos_arm: "/opt/homebrew"
-brew_prefix_macos_intel: "/usr/local"
-brew_repo: "https://github.com/Homebrew/brew"
-core_repo: "https://github.com/Homebrew/homebrew-core"
+# Static variables for the homebrew role
+homebrew_brew_git_remote: "https://github.com/Homebrew/brew"
+homebrew_core_git_remote: "https://github.com/Homebrew/homebrew-core"
+macos_newest_unsupported: "27.0"
+macos_oldest_supported: "14.0"
+required_ruby_version: "3.4"
+required_glibc_version: "2.13"
+required_curl_version: "7.41.0"
+required_git_version: "2.7.0"

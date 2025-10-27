@@ -1,0 +1,182 @@
+---
+- name: Set Linux-specific variables
+  ansible.builtin.set_fact:
+    homebrew_prefix: "/home/linuxbrew/.linuxbrew"
+    homebrew_repository: "/home/linuxbrew/.linuxbrew/Homebrew"
+    homebrew_cache: "{{ ansible_env.HOME }}/.cache/Homebrew"
+    stat_printf: ["/usr/bin/stat", "-c"]
+    permission_format: "%a"
+    chown_cmd: ["/bin/chown", "-R"]
+    chgrp_cmd: ["/bin/chgrp", "-R"]
+    group: "{{ ansible_facts.user_id | get_group_name }}"
+    touch_cmd: ["/bin/touch"]
+    install_cmd: ["/usr/bin/install", "-d", "-o", "{{ ansible_facts.user_id }}", "-g", "{{ ansible_facts.user_id | get_group_name }}", "-m", "0755"]
+    shell_rcfile: "{{ ansible_env.HOME }}/{{ '.zshrc' if ansible_facts.user_shell | basename == 'zsh' else '.bashrc' }}"
+
+- name: Ensure dependencies are installed
+  ansible.builtin.package:
+    name: "{{ item }}"
+    state: present
+  with_items:
+    - curl
+    - git
+  become: true
+
+- name: Check Ruby version
+  ansible.builtin.shell: >
+    set -o pipefail &&
+    ruby --enable-frozen-string-literal --disable=gems,did_you_mean,rubyopt
+    -rrubygems -e "abort if Gem::Version.new(RUBY_VERSION) < Gem::Version.new('{{ required_ruby_version }}')"
+  args:
+    executable: /bin/bash
+  register: ruby_check
+  failed_when: ruby_check.rc != 0
+  changed_when: false
+
+- name: Check glibc version
+  ansible.builtin.shell: >
+    set -o pipefail &&
+    ldd --version | head -n1 | grep -o '[0-9.]*$' | grep -o '^[0-9]\+\.[0-9]\+'
+  args:
+    executable: /bin/bash
+  register: glibc_version
+  changed_when: false
+  # noqa: command-instead-of-module
+
+- name: Fail if glibc version is too old
+  ansible.builtin.fail:
+    msg: |
+      Homebrew requires Glibc version {{ required_glibc_version }} or newer.
+      Your Glibc version is {{ glibc_version.stdout }}. See:
+      https://docs.brew.sh/Homebrew-on-Linux#requirements
+  when: glibc_version.stdout | float < required_glibc_version | float
+
+- name: Check curl version
+  ansible.builtin.shell: >
+    set -o pipefail &&
+    curl --version | head -n1 | awk '{print $2}' | grep -o '^[0-9]\+\.[0-9]\+'
+  args:
+    executable: /bin/bash
+  register: curl_version
+  changed_when: false
+  # noqa: command-instead-of-module
+
+- name: Fail if curl version is too old
+  ansible.builtin.fail:
+    msg: |
+      The version of cURL found does not satisfy requirements for Homebrew.
+      Please install cURL {{ required_curl_version }} or newer and add it to your PATH.
+  when: curl_version.stdout | float < required_curl_version | float
+
+- name: Check git version
+  ansible.builtin.shell: >
+    set -o pipefail &&
+    git --version | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+' | head -n1
+  args:
+    executable: /bin/bash
+  register: git_version
+  changed_when: false
+  # noqa: command-instead-of-module
+
+- name: Fail if git version is too old
+  ansible.builtin.fail:
+    msg: |
+      The version of Git found does not satisfy requirements for Homebrew.
+      Please install Git {{ required_git_version }} or newer and add it to your PATH.
+  when: git_version.stdout | float < required_git_version | float
+
+- name: Create Homebrew directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+    owner: "{{ ansible_facts.user_id }}"
+    group: "{{ group }}"
+  with_items:
+    - "{{ homebrew_prefix }}"
+    - "{{ homebrew_repository }}"
+    - "{{ homebrew_cache }}"
+  become: true
+  when: not homebrew_installed.stat.exists
+
+- name: Clone Homebrew repository
+  ansible.builtin.git:
+    repo: "{{ homebrew_brew_git_remote }}"
+    dest: "{{ homebrew_repository }}"
+    version: "{{ lookup('pipe', 'git -c column.ui=never tag --list --sort=\"-version:refname\" | head -n1') }}"
+    force: true
+    update: true
+  environment:
+    HOMEBREW_NO_ANALYTICS_THIS_RUN: "1"
+    HOMEBREW_NO_ANALYTICS_MESSAGE_OUTPUT: "1"
+  when: not homebrew_installed.stat.exists
+
+- name: Configure Homebrew Git repository
+  ansible.builtin.command: "{{ item }}"
+  args:
+    chdir: "{{ homebrew_repository }}"
+  with_items:
+    - git config remote.origin.url {{ homebrew_brew_git_remote }}
+    - git config remote.origin.fetch +refs/heads/*:refs/remotes/origin/*
+    - git config --bool fetch.prune true
+    - git config --bool core.autocrlf false
+    - git config --bool core.symlinks true
+    - git remote set-head origin --auto
+  when: not homebrew_installed.stat.exists
+  changed_when: false
+
+- name: Create brew symlink
+  ansible.builtin.file:
+    src: "{{ homebrew_repository }}/bin/brew"
+    dest: "{{ homebrew_prefix }}/bin/brew"
+    state: link
+  when: homebrew_repository != homebrew_prefix and not homebrew_installed.stat.exists
+
+- name: Tap homebrew/core if HOMEBREW_NO_INSTALL_FROM_API is set
+  when: lookup('env', 'HOMEBREW_NO_INSTALL_FROM_API') != ""
+  block:
+    - name: Create homebrew/core directory
+      ansible.builtin.file:
+        path: "{{ homebrew_repository }}/Library/Taps/homebrew/homebrew-core"
+        state: directory
+        mode: "0755"
+        owner: "{{ ansible_facts.user_id }}"
+        group: "{{ group }}"
+      when: not homebrew_installed.stat.exists
+
+    - name: Clone homebrew/core repository
+      ansible.builtin.git:
+        repo: "{{ homebrew_core_git_remote }}"
+        dest: "{{ homebrew_repository }}/Library/Taps/homebrew/homebrew-core"
+        version: main
+        force: true
+        update: true
+      environment:
+        HOMEBREW_NO_ANALYTICS_THIS_RUN: "1"
+        HOMEBREW_NO_ANALYTICS_MESSAGE_OUTPUT: "1"
+      when: not homebrew_installed.stat.exists
+
+    - name: Configure homebrew/core Git repository
+      ansible.builtin.command: "{{ item }}"
+      args:
+        chdir: "{{ homebrew_repository }}/Library/Taps/homebrew/homebrew-core"
+      with_items:
+        - git config remote.origin.url {{ homebrew_core_git_remote }}
+        - git config remote.origin.fetch +refs/heads/*:refs/remotes/origin/*
+        - git config --bool fetch.prune true
+        - git config --bool core.autocrlf false
+        - git config --bool core.symlinks true
+        - git remote set-head origin --auto
+        - git reset --hard origin/main
+      when: not homebrew_installed.stat.exists
+      changed_when: false
+
+
+- name: Add Homebrew to shell profile
+  ansible.builtin.lineinfile:
+    path: "{{ shell_rcfile }}"
+    line: 'eval "$({{ homebrew_prefix }}/bin/brew shellenv)"'
+    create: true
+    state: present
+    mode: "0644"
+  when: not homebrew_installed.stat.exists

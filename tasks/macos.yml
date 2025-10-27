@@ -1,0 +1,186 @@
+---
+- name: Set macOS-specific variables
+  ansible.builtin.set_fact:
+    homebrew_prefix: "{{ '/opt/homebrew' if ansible_facts.architecture == 'arm64' else '/usr/local' }}"
+    homebrew_repository: "{{ '/opt/homebrew' if ansible_facts.architecture == 'arm64' else '/usr/local/Homebrew' }}"
+    homebrew_cache: "{{ ansible_env.HOME }}/Library/Caches/Homebrew"
+    stat_printf: ["/usr/bin/stat", "-f"]
+    permission_format: "%A"
+    chown_cmd: ["/usr/sbin/chown", "-R"]
+    chgrp_cmd: ["/usr/bin/chgrp", "-R"]
+    group: "admin"
+    touch_cmd: ["/usr/bin/touch"]
+    install_cmd: ["/usr/bin/install", "-d", "-o", "root", "-g", "wheel", "-m", "0755"]
+    shell_rcfile: "{{ ansible_env.HOME }}/{{ '.zprofile' if ansible_facts.user_shell | basename == 'zsh' else '.bash_profile' }}"
+
+- name: Fail if /etc/homebrew/brew.no_install exists
+  ansible.builtin.stat:
+    path: /etc/homebrew/brew.no_install
+  register: no_install_file
+  failed_when: no_install_file.stat.exists
+
+- name: Check macOS version
+  ansible.builtin.command: /usr/bin/sw_vers -productVersion
+  register: macos_version
+  changed_when: false
+
+- name: Fail if macOS version is too old
+  ansible.builtin.fail:
+    msg: "Your Mac OS X version is too old. See: https://github.com/mistydemeo/tigerbrew"
+  when: macos_version.stdout | regex_replace('^(\\d+\\.\\d+).*', '\\1') | float < 10.7
+
+- name: Check for sudo access
+  ansible.builtin.command: sudo -n -l mkdir
+  register: sudo_check
+  changed_when: false
+  failed_when: false
+
+- name: Fail if sudo access is not available
+  ansible.builtin.fail:
+    msg: "Need sudo access on macOS (e.g., the user {{ ansible_facts.user_id }} needs to be an Administrator)!"
+  when: sudo_check.rc != 0
+
+- name: Check for Xcode license agreement
+  ansible.builtin.command: /usr/bin/xcrun clang
+  register: xcode_license_check
+  changed_when: false
+  failed_when: false
+
+- name: Fail if Xcode license is not accepted
+  ansible.builtin.fail:
+    msg: |
+      You have not agreed to the Xcode license.
+      Before running the installer again, agree to the license by opening Xcode.app or running:
+          sudo xcodebuild -license
+  when: '"license" in xcode_license_check.stderr'
+
+- name: Install Command Line Tools if needed
+  block:
+    - name: Check if Command Line Tools are installed
+      ansible.builtin.stat:
+        path: /Library/Developer/CommandLineTools/usr/bin/git
+      register: clt_git
+
+    - name: Install Command Line Tools (non-interactive)
+      ansible.builtin.command: /usr/sbin/softwareupdate -i "{{ clt_label }}"
+      vars:
+        clt_label: >-
+          {{ lookup('pipe', '/usr/sbin/softwareupdate -l | grep -B 1 -E "Command Line Tools" | awk -F"*" "/^ *\\*/ {print \\$2}" | sed -e "s/^ *Label: //" -e "s/^ *//" | sort -V | tail -n1') }}
+      when: not clt_git.stat.exists
+      become: true
+      environment:
+        SUDO_ASKPASS: "{{ lookup('env', 'SUDO_ASKPASS') | default(omit, true) }}"
+      changed_when: false
+
+    - name: Set Xcode select path
+      ansible.builtin.command: /usr/bin/xcode-select --switch /Library/Developer/CommandLineTools
+      when: not clt_git.stat.exists
+      become: true
+      environment:
+        SUDO_ASKPASS: "{{ lookup('env', 'SUDO_ASKPASS') | default(omit, true) }}"
+      changed_when: false
+
+- name: Create Homebrew directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+    owner: "{{ ansible_facts.user_id }}"
+    group: "{{ group }}"
+  with_items:
+    - "{{ homebrew_prefix }}"
+    - "{{ homebrew_repository }}"
+    - "{{ homebrew_cache }}"
+  become: true
+  when: not homebrew_installed.stat.exists
+
+- name: Clone Homebrew repository
+  ansible.builtin.git:
+    repo: "{{ homebrew_brew_git_remote }}"
+    dest: "{{ homebrew_repository }}"
+    version: "{{ lookup('pipe', 'git -c column.ui=never tag --list --sort=\"-version:refname\" | head -n1') }}"
+    force: true
+    update: true
+  environment:
+    HOMEBREW_NO_ANALYTICS_THIS_RUN: "1"
+    HOMEBREW_NO_ANALYTICS_MESSAGE_OUTPUT: "1"
+  when: not homebrew_installed.stat.exists
+
+- name: Configure Homebrew Git repository
+  ansible.builtin.command: "{{ item }}"
+  args:
+    chdir: "{{ homebrew_repository }}"
+  with_items:
+    - git config remote.origin.url {{ homebrew_brew_git_remote }}
+    - git config remote.origin.fetch +refs/heads/*:refs/remotes/origin/*
+    - git config --bool fetch.prune true
+    - git config --bool core.autocrlf false
+    - git config --bool core.symlinks true
+    - git remote set-head origin --auto
+  when: not homebrew_installed.stat.exists
+  changed_when: false
+
+- name: Create brew symlink
+  ansible.builtin.file:
+    src: "{{ homebrew_repository }}/bin/brew"
+    dest: "{{ homebrew_prefix }}/bin/brew"
+    state: link
+  when: homebrew_repository != homebrew_prefix and not homebrew_installed.stat.exists
+
+- name: Tap homebrew/core if HOMEBREW_NO_INSTALL_FROM_API is set
+  when: lookup('env', 'HOMEBREW_NO_INSTALL_FROM_API') != ""
+  block:
+    - name: Create homebrew/core directory
+      ansible.builtin.file:
+        path: "{{ homebrew_repository }}/Library/Taps/homebrew/homebrew-core"
+        state: directory
+        mode: "0755"
+        owner: "{{ ansible_facts.user_id }}"
+        group: "{{ group }}"
+      when: not homebrew_installed.stat.exists
+
+    - name: Clone homebrew/core repository
+      ansible.builtin.git:
+        repo: "{{ homebrew_core_git_remote }}"
+        dest: "{{ homebrew_repository }}/Library/Taps/homebrew/homebrew-core"
+        version: main
+        force: true
+        update: true
+      environment:
+        HOMEBREW_NO_ANALYTICS_THIS_RUN: "1"
+        HOMEBREW_NO_ANALYTICS_MESSAGE_OUTPUT: "1"
+      when: not homebrew_installed.stat.exists
+
+    - name: Configure homebrew/core Git repository
+      ansible.builtin.command: "{{ item }}"
+      args:
+        chdir: "{{ homebrew_repository }}/Library/Taps/homebrew/homebrew-core"
+      with_items:
+        - git config remote.origin.url {{ homebrew_core_git_remote }}
+        - git config remote.origin.fetch +refs/heads/*:refs/remotes/origin/*
+        - git config --bool fetch.prune true
+        - git config --bool core.autocrlf false
+        - git config --bool core.symlinks true
+        - git remote set-head origin --auto
+        - git reset --hard origin/main
+      when: not homebrew_installed.stat.exists
+      changed_when: false
+
+- name: Add Homebrew to shell profile
+  ansible.builtin.lineinfile:
+    path: "{{ shell_rcfile }}"
+    line: 'eval "$({{ homebrew_prefix }}/bin/brew shellenv)"'
+    create: true
+    state: present
+    mode: "0644"
+  when: not homebrew_installed.stat.exists
+
+- name: Add Homebrew to /etc/paths.d
+  ansible.builtin.copy:
+    content: "{{ homebrew_prefix }}/bin\n"
+    dest: /etc/paths.d/homebrew
+    mode: "0644"
+    owner: root
+    group: wheel
+  become: true
+  when: homebrew_prefix != "/usr/local" and ansible_facts.command_exists('tee')

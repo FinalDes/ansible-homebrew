@@ -1,8 +1,9 @@
+---
 argument_specs:
   main:
-    options:
-      brew_version:
-        description: Tag, branch or commit to checkout for Homebrew/brew
-        type: str
-        default: "4.6.18"
-        required: false
+    short_description: Installs Homebrew on macOS and Linux in non-interactive mode
+    description:
+      - This role installs Homebrew on macOS or Linux, with separate tasks for each platform.
+      - It runs in non-interactive mode, with hardcoded Git remotes for Homebrew repositories.
+      - The role checks for POSIXLY_CORRECT and fails if set to ensure compatibility.
+    options: {}
