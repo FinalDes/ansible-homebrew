@@ -8,21 +8,21 @@
 - name: Set Homebrew install prefix
   ansible.builtin.set_fact:
     brew_prefix: >-
-      {% if ansible_facts['os_family'] == 'Darwin' and ansible_facts['architecture'] == 'arm64' %}
+      {%- if ansible_facts['os_family'] == 'Darwin' and ansible_facts['architecture'] == 'arm64' -%}
         {{ brew_prefix_macos_arm }}
-      {% elif ansible_facts['os_family'] == 'Darwin' %}
+      {%- elif ansible_facts['os_family'] == 'Darwin' -%}
         {{ brew_prefix_macos_intel }}
-      {% else %}
+      {%- else -%}
         {{ brew_prefix_linux }}
-      {% endif %}
+      {%- endif -%}
     brew_repository: >-
-      {% if ansible_facts['os_family'] == 'Darwin' and ansible_facts['architecture'] == 'arm64' %}
+      {%- if ansible_facts['os_family'] == 'Darwin' and ansible_facts['architecture'] == 'arm64' -%}
         {{ brew_prefix_macos_arm }}
-      {% elif ansible_facts['os_family'] == 'Darwin' %}
+      {%- elif ansible_facts['os_family'] == 'Darwin' -%}
         {{ brew_prefix_macos_intel }}/Homebrew
-      {% else %}
+      {%- else -%}
         {{ brew_prefix_linux }}/Homebrew
-      {% endif %}
+      {%- endif -%}
 
 - name: Ensure required packages are installed (Linux only)
   become: true
