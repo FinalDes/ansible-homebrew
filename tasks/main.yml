@@ -42,6 +42,7 @@
   when: ansible_facts['os_family'] == 'Darwin'
 
 - name: Create Homebrew prefix directory
+  become: true
   ansible.builtin.file:
     path: "{{ brew_prefix }}"
     state: directory
@@ -50,6 +51,7 @@
     group: "{{ ansible_user }}"
 
 - name: Create Homebrew repository directory
+  become: true
   ansible.builtin.file:
     path: "{{ brew_repository }}"
     state: directory
