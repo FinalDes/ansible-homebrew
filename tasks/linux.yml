@@ -8,9 +8,9 @@
     permission_format: "%a"
     chown_cmd: ["/bin/chown", "-R"]
     chgrp_cmd: ["/bin/chgrp", "-R"]
-    group: "{{ ansible_facts.user_id | get_group_name }}"
+    group: "{{ ansible_facts['user_gid'] }}"
     touch_cmd: ["/bin/touch"]
-    install_cmd: ["/usr/bin/install", "-d", "-o", "{{ ansible_facts.user_id }}", "-g", "{{ ansible_facts.user_id | get_group_name }}", "-m", "0755"]
+    install_cmd: ["/usr/bin/install", "-d", "-o", "{{ ansible_facts.user_id }}", "-g", "{{ ansible_facts['user_gid'] }}", "-m", "0755"]
     shell_rcfile: "{{ ansible_env.HOME }}/{{ '.zshrc' if ansible_facts.user_shell | basename == 'zsh' else '.bashrc' }}"
 
 - name: Ensure dependencies are installed

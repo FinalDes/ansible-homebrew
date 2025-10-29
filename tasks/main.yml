@@ -19,10 +19,14 @@
     msg: "Don't run this as root!"
   when: ansible_facts.effective_user_id == 0 and not ansible_facts.is_container
 
+- name: Set Homebrew install prefix
+  ansible.builtin.set_fact:
+    homebrew_prefix: "{{ brew_prefix_macos_arm if (ansible_facts['os_family'] == 'Darwin' and ansible_facts['architecture'] == 'arm64') else (brew_prefix_macos_intel if ansible_facts['os_family'] == 'Darwin' else brew_prefix_linux) }}"
+
 - name: Check if Homebrew is already installed
   ansible.builtin.stat:
     path: "{{ homebrew_prefix }}/bin/brew"
-  register: homebrew_installed
+  register: homebrew_stat
   changed_when: false
 
 - name: Include macOS tasks
@@ -38,7 +42,7 @@
   environment:
     HOMEBREW_NO_ANALYTICS_THIS_RUN: "1"
     HOMEBREW_NO_ANALYTICS_MESSAGE_OUTPUT: "1"
-  when: not homebrew_installed.stat.exists
+  when: not homebrew_stat.stat.exists
   changed_when: false
 
 - name: Verify Homebrew installation
