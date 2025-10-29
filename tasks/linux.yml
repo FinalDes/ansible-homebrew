@@ -20,6 +20,7 @@
   with_items:
     - curl
     - git
+    - ruby
   become: true
 
 - name: Check Ruby version
